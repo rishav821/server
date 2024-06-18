@@ -4,6 +4,7 @@ const cors = require("cors");
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { Hospital, User } = require('./models/User');
+const jwtSecret = 'nV3$7n9L#2KzF!gYq8XbW4J&jT6rP@dZ';
 
 const app = express();
 app.use(express.json());
@@ -24,8 +25,6 @@ mongoose.connection.on('connected', () => {
 mongoose.connection.on('error', (err) => {
     console.error('Error connecting to MongoDB Atlas', err);
 });
-
-const jwtSecret = 'nV3$7n9L#2KzF!gYq8XbW4J&jT6rP@dZ';
 
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -60,6 +59,7 @@ app.post('/register', async (req, res) => {
             address: HospitalAddress,
         });
 
+        // Set the role to 'User' by default
         const user = await User.create({
             firstName: FirstName,
             lastName: LastName,
@@ -69,6 +69,7 @@ app.post('/register', async (req, res) => {
             password: hashedPassword,
             agreement: agreement,
             hospital: hospital._id,
+            role: 'User', // Set the role to 'User' by default
         });
 
         res.status(201).json({ message: 'Registration successful', user });
@@ -83,20 +84,17 @@ app.put('/users/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { firstName, lastName, email, phoneNumber, username, password } = req.body;
 
-        // Check if user exists
         const user = await User.findById(id);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Update user fields
         user.firstName = firstName || user.firstName;
         user.lastName = lastName || user.lastName;
         user.email = email || user.email;
         user.phoneNumber = phoneNumber || user.phoneNumber;
         user.username = username || user.username;
 
-        // If password is provided, hash it
         if (password) {
             user.password = await bcrypt.hash(password, 10);
         }
@@ -132,17 +130,26 @@ app.post('/login', async (req, res) => {
 
         const user = await User.findOne({ username });
         if (!user) {
+            console.error("Login failed: User not found");
             return res.status(400).json({ message: 'Invalid username or password' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
+            console.error("Login failed: Incorrect password");
             return res.status(400).json({ message: 'Invalid username or password' });
         }
 
-        const expiresIn = 10; // 2 minutes in seconds
-        const token = jwt.sign({ id: user._id, username: user.username }, jwtSecret, { expiresIn });
+        // Check if the user is admin, if so, set role as 'Admin', otherwise set as 'User'
+        const role = user.role === 'Admin' ? 'Admin' : 'User';
 
+        // Set the expiration time for the token
+        const expiresIn = 290; // 2 minutes in seconds
+
+        // Sign the JWT token with user information including role
+        const token = jwt.sign({ id: user._id, username: user.username, role }, jwtSecret, { expiresIn });
+
+        // Return the token and expiration time in the response
         res.status(200).json({ message: 'Login successful', token, expiresIn });
     } catch (err) {
         console.error("Login failed:", err.message);
@@ -150,16 +157,16 @@ app.post('/login', async (req, res) => {
     }
 });
 
+
 app.get('/users', authenticateToken, async (req, res) => {
     try {
-      const users = await User.find();
-      res.status(200).json(users);
+        const users = await User.find();
+        res.status(200).json(users);
     } catch (error) {
-      console.error('Error fetching users:', error);
-      res.status(500).json({ error: 'Failed to fetch users' });
+        console.error('Error fetching users:', error);
+        res.status(500).json({ error: 'Failed to fetch users' });
     }
-  });
-  
+});
 
 app.listen(1330, () => {
     console.log("Server is running on port 1330");
